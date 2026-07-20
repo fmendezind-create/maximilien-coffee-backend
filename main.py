@@ -7,6 +7,32 @@ import os, hashlib, hmac, json
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
+
+# ── SKU GENERATOR ─────────────────────────────────────────────────
+PRODUCT_CODES = {
+    "bourbon-rosado":    "BR",
+    "variedad-colombia": "VC",
+    "blend":             "BL",
+}
+WEIGHT_CODES = {
+    "250g": "250G",
+    "454g": "454G",
+    "500g": "500G",
+}
+GRIND_CODES = {
+    "En grano":        "GRN",
+    "Filtro":          "FIL",
+    "Espresso":        "ESP",
+    "Prensa francesa": "PRF",
+    "Moka":            "MOK",
+}
+
+def generate_sku(slug: str, weight: str, grind: str) -> str:
+    prod   = PRODUCT_CODES.get(slug, "XX")
+    wt     = WEIGHT_CODES.get(weight, weight.upper().replace("G","G"))
+    gr     = GRIND_CODES.get(grind, "GRN")
+    return f"MC-{prod}-{wt}-{gr}"
+
 app = FastAPI(title="Maximilien Coffee API", version="1.0.0")
 
 app.add_middleware(
@@ -53,18 +79,47 @@ def init_db():
             id SERIAL PRIMARY KEY,
             slug VARCHAR(100) UNIQUE NOT NULL,
             name VARCHAR(200),
+            sku_base VARCHAR(20),
             stock_250g INTEGER DEFAULT 0,
             stock_454g INTEGER DEFAULT 0,
             stock_500g INTEGER DEFAULT 0,
             updated_at TIMESTAMP DEFAULT NOW()
         );
 
-        INSERT INTO inventory (slug, name, stock_250g, stock_454g, stock_500g)
+        CREATE TABLE IF NOT EXISTS skus (
+            id SERIAL PRIMARY KEY,
+            sku VARCHAR(50) UNIQUE NOT NULL,
+            slug VARCHAR(100),
+            weight VARCHAR(20),
+            grind VARCHAR(50),
+            description VARCHAR(200),
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+
+        INSERT INTO inventory (slug, name, sku_base, stock_250g, stock_454g, stock_500g)
         VALUES
-            ('bourbon-rosado', 'Bourbon Rosado', 50, 30, 20),
-            ('variedad-colombia', 'Variedad Colombia', 50, 30, 20),
-            ('blend', 'Blend', 100, 50, 30)
+            ('bourbon-rosado',    'Bourbon Rosado',    'MC-BR', 50, 30, 20),
+            ('variedad-colombia', 'Variedad Colombia', 'MC-VC', 50, 30, 20),
+            ('blend',             'Blend',             'MC-BL', 100, 50, 30)
         ON CONFLICT (slug) DO NOTHING;
+
+        INSERT INTO skus (sku, slug, weight, grind, description) VALUES
+            ('MC-BR-250G-GRN', 'bourbon-rosado', '250g', 'En grano', 'Bourbon Rosado 250g En Grano'),
+            ('MC-BR-250G-FIL', 'bourbon-rosado', '250g', 'Filtro', 'Bourbon Rosado 250g Filtro'),
+            ('MC-BR-250G-ESP', 'bourbon-rosado', '250g', 'Espresso', 'Bourbon Rosado 250g Espresso'),
+            ('MC-BR-454G-GRN', 'bourbon-rosado', '454g', 'En grano', 'Bourbon Rosado 454g En Grano'),
+            ('MC-BR-454G-FIL', 'bourbon-rosado', '454g', 'Filtro', 'Bourbon Rosado 454g Filtro'),
+            ('MC-BR-500G-GRN', 'bourbon-rosado', '500g', 'En grano', 'Bourbon Rosado 500g En Grano'),
+            ('MC-VC-250G-GRN', 'variedad-colombia', '250g', 'En grano', 'Variedad Colombia 250g En Grano'),
+            ('MC-VC-250G-FIL', 'variedad-colombia', '250g', 'Filtro', 'Variedad Colombia 250g Filtro'),
+            ('MC-VC-250G-ESP', 'variedad-colombia', '250g', 'Espresso', 'Variedad Colombia 250g Espresso'),
+            ('MC-VC-454G-GRN', 'variedad-colombia', '454g', 'En grano', 'Variedad Colombia 454g En Grano'),
+            ('MC-VC-500G-FIL', 'variedad-colombia', '500g', 'Filtro', 'Variedad Colombia 500g Filtro'),
+            ('MC-BL-250G-GRN', 'blend', '250g', 'En grano', 'Blend 250g En Grano'),
+            ('MC-BL-250G-ESP', 'blend', '250g', 'Espresso', 'Blend 250g Espresso'),
+            ('MC-BL-454G-ESP', 'blend', '454g', 'Espresso', 'Blend 454g Espresso'),
+            ('MC-BL-500G-ESP', 'blend', '500g', 'Espresso', 'Blend 500g Espresso')
+        ON CONFLICT (sku) DO NOTHING;
     """)
     conn.commit()
     cur.close()
@@ -117,7 +172,14 @@ def health():
 def create_order(order: CreateOrderRequest, db=Depends(get_db)):
     cur = db.cursor()
     try:
-        cur.execute("""
+        # Enriquecer items con SKU interno
+    items_with_sku = []
+    for item in order.items:
+        item_dict = item.dict()
+        item_dict["sku"] = generate_sku(item.slug, item.weight, item.grind)
+        items_with_sku.append(item_dict)
+
+    cur.execute("""
             INSERT INTO orders (
                 reference, status, customer_name, customer_email, customer_phone,
                 customer_address, customer_city, customer_dept,
@@ -128,7 +190,7 @@ def create_order(order: CreateOrderRequest, db=Depends(get_db)):
             order.reference, "pending",
             order.customer_name, order.customer_email, order.customer_phone,
             order.customer_address, order.customer_city, order.customer_dept,
-            json.dumps([i.dict() for i in order.items]),
+            json.dumps(items_with_sku),
             order.subtotal, order.discount, order.total, order.notes
         ))
         db.commit()
@@ -272,6 +334,20 @@ def update_inventory(slug: str, body: dict, db=Depends(get_db), _=Depends(verify
     if not inv:
         raise HTTPException(status_code=404, detail="Producto no encontrado")
     return dict(inv)
+
+
+@app.get("/admin/skus")
+def list_skus(db=Depends(get_db), _=Depends(verify_admin)):
+    cur = db.cursor()
+    cur.execute("SELECT * FROM skus ORDER BY slug, weight, grind")
+    return [dict(r) for r in cur.fetchall()]
+
+@app.get("/skus/{slug}")
+def get_skus_by_product(slug: str, db=Depends(get_db)):
+    """Retorna todos los SKUs de un producto — útil para el frontend"""
+    cur = db.cursor()
+    cur.execute("SELECT sku, weight, grind, description FROM skus WHERE slug = %s ORDER BY weight", (slug,))
+    return [dict(r) for r in cur.fetchall()]
 
 @app.get("/inventory/{slug}")
 def public_inventory(slug: str, db=Depends(get_db)):
