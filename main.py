@@ -37,7 +37,7 @@ app = FastAPI(title="Maximilien Coffee API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://maximilien-coffee-web.vercel.app", "https://maximiliencoffee.com"],
+    allow_origins=["https://maximiliencoffee.com", "https://www.maximiliencoffee.com", "https://maximilien-coffee-web.vercel.app"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
