@@ -349,6 +349,75 @@ def get_skus_by_product(slug: str, db=Depends(get_db)):
     cur.execute("SELECT sku, weight, grind, description FROM skus WHERE slug = %s ORDER BY weight", (slug,))
     return [dict(r) for r in cur.fetchall()]
 
+
+# ── SUSCRIPCIONES ─────────────────────────────────────────────────
+
+class CreateSubscriptionRequest(BaseModel):
+    customer_name: str
+    customer_email: EmailStr
+    customer_phone: str
+    customer_address: Optional[str] = ""
+    customer_city: Optional[str] = ""
+    product_slug: str
+    product_name: str
+    weight: str
+    price_original: int
+    price_discounted: int
+    notes: Optional[str] = ""
+
+@app.post("/subscriptions")
+def create_subscription(sub: CreateSubscriptionRequest, db=Depends(get_db)):
+    cur = db.cursor()
+    try:
+        # Crear tabla si no existe
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS subscriptions (
+                id SERIAL PRIMARY KEY,
+                customer_name VARCHAR(200),
+                customer_email VARCHAR(200),
+                customer_phone VARCHAR(50),
+                customer_address TEXT,
+                customer_city VARCHAR(100),
+                product_slug VARCHAR(100),
+                product_name VARCHAR(200),
+                weight VARCHAR(20),
+                price_original INTEGER,
+                price_discounted INTEGER,
+                status VARCHAR(50) DEFAULT 'pending',
+                notes TEXT,
+                created_at TIMESTAMP DEFAULT NOW()
+            );
+        """)
+        cur.execute("""
+            INSERT INTO subscriptions (
+                customer_name, customer_email, customer_phone,
+                customer_address, customer_city,
+                product_slug, product_name, weight,
+                price_original, price_discounted, notes
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (
+            sub.customer_name, sub.customer_email, sub.customer_phone,
+            sub.customer_address, sub.customer_city,
+            sub.product_slug, sub.product_name, sub.weight,
+            sub.price_original, sub.price_discounted, sub.notes
+        ))
+        db.commit()
+        result = cur.fetchone()
+        return {"ok": True, "id": result["id"]}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/admin/subscriptions")
+def list_subscriptions(db=Depends(get_db), _=Depends(verify_admin)):
+    cur = db.cursor()
+    try:
+        cur.execute("SELECT * FROM subscriptions ORDER BY created_at DESC")
+        return [dict(r) for r in cur.fetchall()]
+    except:
+        return []
+
 @app.get("/inventory/{slug}")
 def public_inventory(slug: str, db=Depends(get_db)):
     cur = db.cursor()
