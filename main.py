@@ -172,13 +172,14 @@ def health():
 @app.post("/orders")
 def create_order(order: CreateOrderRequest, db=Depends(get_db)):
     cur = db.cursor()
+    
     try:
         # Enriquecer items con SKU interno
-    items_with_sku = []
-    for item in order.items:
-        item_dict = item.dict()
-        item_dict["sku"] = generate_sku(item.slug, item.weight, item.grind)
-        items_with_sku.append(item_dict)
+        items_with_sku = []
+        for item in order.items:
+            item_dict = item.dict()
+            item_dict["sku"] = generate_sku(item.slug, item.weight, item.grind)
+            items_with_sku.append(item_dict)
 
     cur.execute("""
             INSERT INTO orders (
