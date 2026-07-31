@@ -72,6 +72,8 @@ def init_db():
             payment_method VARCHAR(50),
             wompi_transaction_id VARCHAR(200),
             notes TEXT,
+            accepted_policy BOOLEAN DEFAULT FALSE,
+            policy_accepted_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT NOW(),
             updated_at TIMESTAMP DEFAULT NOW()
         );
@@ -172,28 +174,30 @@ def health():
 @app.post("/orders")
 def create_order(order: CreateOrderRequest, db=Depends(get_db)):
     cur = db.cursor()
-    
     try:
         # Enriquecer items con SKU interno
-        items_with_sku = []
-        for item in order.items:
-            item_dict = item.dict()
-            item_dict["sku"] = generate_sku(item.slug, item.weight, item.grind)
-            items_with_sku.append(item_dict)
+    items_with_sku = []
+    for item in order.items:
+        item_dict = item.dict()
+        item_dict["sku"] = generate_sku(item.slug, item.weight, item.grind)
+        items_with_sku.append(item_dict)
 
     cur.execute("""
             INSERT INTO orders (
                 reference, status, customer_name, customer_email, customer_phone,
                 customer_address, customer_city, customer_dept,
-                items, subtotal, discount, total, notes
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                items, subtotal, discount, total, notes,
+                accepted_policy, policy_accepted_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING *
         """, (
             order.reference, "pending",
             order.customer_name, order.customer_email, order.customer_phone,
             order.customer_address, order.customer_city, order.customer_dept,
             json.dumps(items_with_sku),
-            order.subtotal, order.discount, order.total, order.notes
+            order.subtotal, order.discount, order.total, order.notes,
+            getattr(order, 'accepted_policy', False),
+            getattr(order, 'policy_accepted_at', None)
         ))
         db.commit()
         result = dict(cur.fetchone())
@@ -244,7 +248,7 @@ async def wompi_webhook(request_body: dict, x_event_checksum: Optional[str] = He
 # ── PANEL ADMIN ───────────────────────────────────────────────────
 
 def verify_admin(x_admin_key: Optional[str] = Header(None)):
-    admin_key = os.environ.get("ADMIN_KEY", "mc-admin-2025")
+    admin_key = os.environ.get("ADMIN_KEY", "")
     if not admin_key or x_admin_key != admin_key:
         raise HTTPException(status_code=401, detail="No autorizado")
     return True
