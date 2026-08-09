@@ -230,6 +230,8 @@ def init_db():
             weight VARCHAR(20),
             grind VARCHAR(50),
             description VARCHAR(200),
+            stock INTEGER DEFAULT 0,
+            updated_at TIMESTAMP DEFAULT NOW(),
             created_at TIMESTAMP DEFAULT NOW()
         );
     """)
@@ -789,6 +791,48 @@ def create_shipment(body: dict, db=Depends(get_db), _=Depends(verify_admin)):
         """, (body.get("tracking_number"), body.get("carrier"), body.get("order_id")))
         db.commit()
     return shipment
+
+
+# ── INVENTARIO POR SKU ────────────────────────────────────────────
+
+@app.get("/admin/inventory/skus")
+def get_inventory_skus(db=Depends(get_db), _=Depends(verify_admin)):
+    cur = db.cursor()
+    cur.execute("""
+        SELECT s.*, i.name as product_name
+        FROM skus s
+        LEFT JOIN inventory i ON s.slug = i.slug
+        ORDER BY s.slug, s.weight, s.grind
+    """)
+    return [dict(r) for r in cur.fetchall()]
+
+@app.patch("/admin/inventory/skus/{sku}")
+def update_sku_stock(sku: str, body: dict, db=Depends(get_db), _=Depends(verify_admin)):
+    stock = body.get("stock", 0)
+    cur = db.cursor()
+    cur.execute("""
+        UPDATE skus SET stock = %s, updated_at = NOW()
+        WHERE sku = %s RETURNING *
+    """, (stock, sku))
+    db.commit()
+    result = cur.fetchone()
+    if not result:
+        raise HTTPException(status_code=404, detail="SKU no encontrado")
+    cur.execute("""
+        INSERT INTO audit_log (action, entity, entity_id, new_value)
+        VALUES ('update', 'inventory_sku', %s, %s)
+    """, (sku, json.dumps({"stock": stock})))
+    db.commit()
+    return dict(result)
+
+@app.get("/inventory/sku/{sku}")
+def public_sku_stock(sku: str, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("SELECT sku, stock FROM skus WHERE sku = %s", (sku,))
+    result = cur.fetchone()
+    if not result:
+        raise HTTPException(status_code=404, detail="SKU no encontrado")
+    return dict(result)
 
 # ── ANALYTICS (Power BI ready) ────────────────────────────────────
 
