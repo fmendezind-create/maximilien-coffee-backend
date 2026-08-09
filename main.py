@@ -176,13 +176,12 @@ def create_order(order: CreateOrderRequest, db=Depends(get_db)):
     cur = db.cursor()
     try:
         # Enriquecer items con SKU interno
-    items_with_sku = []
-    for item in order.items:
-        item_dict = item.dict()
-        item_dict["sku"] = generate_sku(item.slug, item.weight, item.grind)
-        items_with_sku.append(item_dict)
-
-    cur.execute("""
+        items_with_sku = []
+        for item in order.items:
+            item_dict = item.dict()
+            item_dict["sku"] = generate_sku(item.slug, item.weight, item.grind)
+            items_with_sku.append(item_dict)
+        cur.execute("""
             INSERT INTO orders (
                 reference, status, customer_name, customer_email, customer_phone,
                 customer_address, customer_city, customer_dept,
