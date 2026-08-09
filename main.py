@@ -356,6 +356,25 @@ def get_skus_by_product(slug: str, db=Depends(get_db)):
     return [dict(r) for r in cur.fetchall()]
 
 
+
+# ── CUPONES ───────────────────────────────────────────────────────
+# Los cupones viven en el servidor — nunca en el cliente
+COUPONS: dict[str, int] = {
+    "BIENVENIDO": 10,
+    "ALMA10": 10,
+    "HUILA15": 15,
+}
+
+class ValidateCouponRequest(BaseModel):
+    code: str
+
+@app.post("/coupons/validate")
+def validate_coupon(req: ValidateCouponRequest):
+    code = req.code.strip().upper()
+    if code in COUPONS:
+        return { "valid": True, "discount": COUPONS[code], "code": code }
+    return { "valid": False, "discount": 0, "code": code }
+
 # ── SUSCRIPCIONES ─────────────────────────────────────────────────
 
 class CreateSubscriptionRequest(BaseModel):
