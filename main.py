@@ -20,11 +20,10 @@ WEIGHT_CODES = {
     "500g": "500G",
 }
 GRIND_CODES = {
-    "En grano":        "GRN",
-    "Filtro":          "FIL",
-    "Espresso":        "ESP",
-    "Prensa francesa": "PRF",
-    "Moka":            "MOK",
+    "En grano": "GRN",
+    "Molido":   "MOL",
+    "Filtro":   "MOL",
+    "Espresso": "MOL",
 }
 
 def generate_sku(slug: str, weight: str, grind: str) -> str:
